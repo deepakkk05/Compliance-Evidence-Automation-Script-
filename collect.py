@@ -12,10 +12,12 @@ import logging
 import subprocess
 import shutil
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+import boto3
+from botocore.exceptions import NoCredentialsError, ClientError
 
-#Add ZIP helper function
-import shutil
-
+# ZIP helper function
 def zip_evidence(output_path):
     """Compress the entire output folder into a .zip archive."""
     try:
@@ -25,7 +27,6 @@ def zip_evidence(output_path):
     except Exception as e:
         logging.error(f"Failed to create ZIP archive: {e}")
         return None
-
 
 def load_config(path="config.yaml"):
     try:
@@ -113,11 +114,6 @@ def collect_packages(output_path):
         return
     run_command(cmd, output_path / "packages.txt")
 
-# -----------------------------------------------------
-
-import boto3
-from botocore.exceptions import NoCredentialsError, ClientError
-
 # ----------------- AWS COLLECTORS -----------------
 def aws_client(service, profile, region):
     """Create a boto3 client with optional profile."""
@@ -163,8 +159,35 @@ def collect_iam_users(output_path, profile, region):
         logging.info("AWS IAM users collected.")
     except (NoCredentialsError, ClientError) as e:
         logging.error(f"Error collecting IAM users: {e}")
-# ---------------------------------------------------
 
+# Helper functions for threaded collectors with progress bars
+def run_local_collector(collector, local_path):
+    try:
+        if collector == "uname":
+            collect_uname(local_path)
+        elif collector == "processes":
+            collect_processes(local_path)
+        elif collector == "crontab":
+            collect_crontab(local_path)
+        elif collector == "packages":
+            collect_packages(local_path)
+        return (collector, None)
+    except Exception as e:
+        logging.error(f"Local collector {collector} failed: {e}")
+        return (collector, e)
+
+def run_aws_collector(collector, aws_path, profile, region):
+    try:
+        if collector == "s3":
+            collect_s3_buckets(aws_path, profile, region)
+        elif collector == "security_groups":
+            collect_security_groups(aws_path, profile, region)
+        elif collector == "iam_users":
+            collect_iam_users(aws_path, profile, region)
+        return (collector, None)
+    except Exception as e:
+        logging.error(f"AWS collector {collector} failed: {e}")
+        return (collector, e)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -180,29 +203,23 @@ def main():
     base_output = args.output or config["output"]["base_dir"]
 
     output_path = create_output_dir(base_output)
-    local_path = output_path / "local"
-    local_path.mkdir(exist_ok=True)
 
     init_logger(output_path / "collect.log")
     logging.info("Script started.")
     save_env_metadata(output_path)
 
-    # -------- Local collectors with error handling --------
-    local_collectors = args.collectors or config["collectors"].get("local", [])
-    for collector in local_collectors:
-        try:
-            if collector == "uname":
-                collect_uname(local_path)
-            elif collector == "processes":
-                collect_processes(local_path)
-            elif collector == "crontab":
-                collect_crontab(local_path)
-            elif collector == "packages":
-                collect_packages(local_path)
-        except Exception as e:
-            logging.error(f"Collector {collector} failed: {e}")
+    # Local collectors
+    local_collectors = args.collectors or config["collectors"]["local"]
+    local_path = output_path / "local"
+    local_path.mkdir(exist_ok=True)
 
-    # -------- AWS collectors with error handling --------
+    # Run local collectors in parallel with progress bar
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(run_local_collector, c, local_path): c for c in local_collectors}
+        for _ in tqdm(as_completed(futures), total=len(futures), desc="Running local collectors", unit="task"):
+            pass  # tqdm handles the progress bar update
+
+    # AWS collectors
     if not args.no_aws:
         aws_collectors = config["collectors"].get("aws", [])
         profile = args.aws_profile or config["aws"]["profile"]
@@ -211,21 +228,25 @@ def main():
         aws_path = output_path / "aws"
         aws_path.mkdir(exist_ok=True)
 
-        for aws_collector in aws_collectors:
-            try:
-                if aws_collector == "s3":
-                    collect_s3_buckets(aws_path, profile, region)
-                elif aws_collector == "security_groups":
-                    collect_security_groups(aws_path, profile, region)
-                elif aws_collector == "iam_users":
-                    collect_iam_users(aws_path, profile, region)
-            except Exception as e:
-                logging.error(f"AWS collector {aws_collector} failed: {e}")
-
-    # -------- ZIP everything --------
-    zip_evidence(output_path)
+        # Run AWS collectors in parallel with progress bar
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(run_aws_collector, c, aws_path, profile, region): c for c in aws_collectors}
+            for _ in tqdm(as_completed(futures), total=len(futures), desc="Running AWS collectors", unit="task"):
+                pass
 
     print(f"✅ Evidence collected in: {output_path}")
+
+        # ... after all collectors finish ...
+
+    # Zip the output folder
+    zip_file = zip_evidence(output_path)
+    if zip_file:
+        print(f"✅ Evidence zipped: {zip_file}")
+    else:
+        print("⚠️ Failed to create ZIP archive.")
+
+    print(f"✅ Evidence collected in: {output_path}")
+
 
 if __name__ == "__main__":
     main()
