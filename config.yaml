@@ -1,0 +1,26 @@
+
+
+## **4️⃣ Create `config.yaml` (collector settings)**
+
+Create `config.yaml`:
+
+# Collectors to run
+collectors:
+  local:
+    - uname
+    - processes
+    - crontab
+    - packages
+  aws:
+    - s3
+    - security_groups
+    - iam_users
+
+# AWS settings
+aws:
+  profile: default
+  region: us-east-1
+
+# Output settings
+output:
+  base_dir: "Audit_Evidence"

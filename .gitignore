@@ -1,0 +1,9 @@
+pycache/
+*.pyc
+*.log
+*.tar.gz
+*.zip
+.env
+venv/
+Audit_Evidence/
+
