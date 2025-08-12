@@ -25,6 +25,9 @@ The tool is **config-driven**, supports **parallel execution** with progress bar
   - Progress bar support via `tqdm`
 - **Metadata Logging**
   - Environment details (OS, Python version, username, hostname, timestamp)
+- **Summary Report Generation**
+  - Creates comprehensive summary of all collected evidence
+  - Includes statistics and overview of findings
 - **Automatic Archiving**
   - Compresses results into `.zip` format for portability
 - **Configurable**
@@ -53,10 +56,9 @@ compliance_evidence/
                    └─────────────────┘    └──────────────────┘
                                                      │
 ┌─────────────┐    ┌─────────────────┐    ┌──────────────────┘
-│ Create ZIP  │◀───│ Run AWS         │◀───│ Run Local        │
-│ Archive     │    │ Collectors      │    │ Collectors       │
-└─────────────┘    │ (Sequential)    │    │ (Parallel)       │
-                   └─────────────────┘    └──────────────────┘
+│ Create ZIP  │◀───│ Generate Summary│◀───│ Run Local &      │
+│ Archive     │    │ Report          │    │ AWS Collectors   │
+└─────────────┘    └─────────────────┘    └──────────────────┘
 ```
 
 ---
@@ -140,6 +142,7 @@ python compliance_evidence.py --aws-profile myprofile
 │
 ├── collect.log
 ├── env_metadata.json
+├── summary_report.json          # Comprehensive summary of all evidence
 ├── local/
 │   ├── uname.txt
 │   ├── processes.txt
@@ -174,8 +177,9 @@ pip install boto3 pyyaml tqdm
 3. Initialize logging and save environment metadata.
 4. Run local collectors in parallel (with progress bar).
 5. Run AWS collectors (if not skipped).
-6. Zip the evidence folder.
-7. Display success message with output location.
+6. Generate comprehensive summary report of all collected evidence.
+7. Zip the evidence folder.
+8. Display success message with output location.
 
 ---
 
@@ -186,12 +190,3 @@ pip install boto3 pyyaml tqdm
 
 ---
 
-## 📄 License
-This project is licensed under the MIT License.
-
----
-
-## ✨ Author
-**Your Name**  
-📧 youremail@example.com  
-💼 [LinkedIn Profile](https://linkedin.com/in/yourprofile)
