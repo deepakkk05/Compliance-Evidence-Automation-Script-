@@ -13,6 +13,20 @@ import subprocess
 import shutil
 import os
 
+#Add ZIP helper function
+import shutil
+
+def zip_evidence(output_path):
+    """Compress the entire output folder into a .zip archive."""
+    try:
+        zip_file = shutil.make_archive(str(output_path), 'zip', str(output_path))
+        logging.info(f"Evidence successfully zipped: {zip_file}")
+        return zip_file
+    except Exception as e:
+        logging.error(f"Failed to create ZIP archive: {e}")
+        return None
+
+
 def load_config(path="config.yaml"):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -173,19 +187,22 @@ def main():
     logging.info("Script started.")
     save_env_metadata(output_path)
 
-    # Determine which local collectors to run
-    local_collectors = args.collectors or config["collectors"]["local"]
+    # -------- Local collectors with error handling --------
+    local_collectors = args.collectors or config["collectors"].get("local", [])
+    for collector in local_collectors:
+        try:
+            if collector == "uname":
+                collect_uname(local_path)
+            elif collector == "processes":
+                collect_processes(local_path)
+            elif collector == "crontab":
+                collect_crontab(local_path)
+            elif collector == "packages":
+                collect_packages(local_path)
+        except Exception as e:
+            logging.error(f"Collector {collector} failed: {e}")
 
-    if "uname" in local_collectors:
-        collect_uname(local_path)
-    if "processes" in local_collectors:
-        collect_processes(local_path)
-    if "crontab" in local_collectors:
-        collect_crontab(local_path)
-    if "packages" in local_collectors:
-        collect_packages(local_path)
-
-        # AWS collectors
+    # -------- AWS collectors with error handling --------
     if not args.no_aws:
         aws_collectors = config["collectors"].get("aws", [])
         profile = args.aws_profile or config["aws"]["profile"]
@@ -194,13 +211,19 @@ def main():
         aws_path = output_path / "aws"
         aws_path.mkdir(exist_ok=True)
 
-        if "s3" in aws_collectors:
-            collect_s3_buckets(aws_path, profile, region)
-        if "security_groups" in aws_collectors:
-            collect_security_groups(aws_path, profile, region)
-        if "iam_users" in aws_collectors:
-            collect_iam_users(aws_path, profile, region)
+        for aws_collector in aws_collectors:
+            try:
+                if aws_collector == "s3":
+                    collect_s3_buckets(aws_path, profile, region)
+                elif aws_collector == "security_groups":
+                    collect_security_groups(aws_path, profile, region)
+                elif aws_collector == "iam_users":
+                    collect_iam_users(aws_path, profile, region)
+            except Exception as e:
+                logging.error(f"AWS collector {aws_collector} failed: {e}")
 
+    # -------- ZIP everything --------
+    zip_evidence(output_path)
 
     print(f"✅ Evidence collected in: {output_path}")
 
