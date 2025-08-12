@@ -101,6 +101,57 @@ def collect_packages(output_path):
 
 # -----------------------------------------------------
 
+import boto3
+from botocore.exceptions import NoCredentialsError, ClientError
+
+# ----------------- AWS COLLECTORS -----------------
+def aws_client(service, profile, region):
+    """Create a boto3 client with optional profile."""
+    try:
+        session = boto3.Session(profile_name=profile, region_name=region)
+        return session.client(service)
+    except Exception as e:
+        logging.error(f"Failed to create AWS client for {service}: {e}")
+        return None
+
+def collect_s3_buckets(output_path, profile, region):
+    client = aws_client("s3", profile, region)
+    if not client:
+        return
+    try:
+        response = client.list_buckets()
+        with open(output_path / "s3_buckets.json", "w", encoding="utf-8") as f:
+            json.dump(response.get("Buckets", []), f, indent=2, default=str)
+        logging.info("AWS S3 buckets collected.")
+    except (NoCredentialsError, ClientError) as e:
+        logging.error(f"Error collecting S3 buckets: {e}")
+
+def collect_security_groups(output_path, profile, region):
+    client = aws_client("ec2", profile, region)
+    if not client:
+        return
+    try:
+        response = client.describe_security_groups()
+        with open(output_path / "security_groups.json", "w", encoding="utf-8") as f:
+            json.dump(response.get("SecurityGroups", []), f, indent=2, default=str)
+        logging.info("AWS security groups collected.")
+    except (NoCredentialsError, ClientError) as e:
+        logging.error(f"Error collecting security groups: {e}")
+
+def collect_iam_users(output_path, profile, region):
+    client = aws_client("iam", profile, region)
+    if not client:
+        return
+    try:
+        response = client.list_users()
+        with open(output_path / "iam_users.json", "w", encoding="utf-8") as f:
+            json.dump(response.get("Users", []), f, indent=2, default=str)
+        logging.info("AWS IAM users collected.")
+    except (NoCredentialsError, ClientError) as e:
+        logging.error(f"Error collecting IAM users: {e}")
+# ---------------------------------------------------
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compliance Evidence Automation Script"
@@ -133,6 +184,23 @@ def main():
         collect_crontab(local_path)
     if "packages" in local_collectors:
         collect_packages(local_path)
+
+        # AWS collectors
+    if not args.no_aws:
+        aws_collectors = config["collectors"].get("aws", [])
+        profile = args.aws_profile or config["aws"]["profile"]
+        region = config["aws"]["region"]
+
+        aws_path = output_path / "aws"
+        aws_path.mkdir(exist_ok=True)
+
+        if "s3" in aws_collectors:
+            collect_s3_buckets(aws_path, profile, region)
+        if "security_groups" in aws_collectors:
+            collect_security_groups(aws_path, profile, region)
+        if "iam_users" in aws_collectors:
+            collect_iam_users(aws_path, profile, region)
+
 
     print(f"✅ Evidence collected in: {output_path}")
 

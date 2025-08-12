@@ -1,10 +1,6 @@
+output:
+  base_dir: "Audit_Evidence"
 
-
-## **4️⃣ Create `config.yaml` (collector settings)**
-
-Create `config.yaml`:
-
-# Collectors to run
 collectors:
   local:
     - uname
@@ -16,11 +12,6 @@ collectors:
     - security_groups
     - iam_users
 
-# AWS settings
 aws:
-  profile: default
-  region: us-east-1
-
-# Output settings
-output:
-  base_dir: "Audit_Evidence"
+  profile: "default"  # or your AWS profile name
+  region: "us-east-1"
