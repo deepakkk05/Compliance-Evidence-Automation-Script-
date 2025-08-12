@@ -9,6 +9,9 @@ import platform
 import json
 import getpass
 import logging
+import subprocess
+import shutil
+import os
 
 def load_config(path="config.yaml"):
     try:
@@ -19,7 +22,6 @@ def load_config(path="config.yaml"):
         sys.exit(1)
 
 def create_output_dir(base_dir):
-    """Create timestamped output directory."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     hostname = socket.gethostname()
     folder_name = f"{timestamp}_{hostname}"
@@ -28,7 +30,6 @@ def create_output_dir(base_dir):
     return output_path
 
 def init_logger(log_path):
-    """Initialize logger that writes to a file."""
     logging.basicConfig(
         filename=log_path,
         level=logging.INFO,
@@ -37,7 +38,6 @@ def init_logger(log_path):
     logging.info("Logger initialized.")
 
 def save_env_metadata(output_path):
-    """Save environment metadata to env_metadata.json."""
     metadata = {
         "hostname": socket.gethostname(),
         "username": getpass.getuser(),
@@ -51,6 +51,56 @@ def save_env_metadata(output_path):
         json.dump(metadata, f, indent=2)
     logging.info("Environment metadata saved.")
 
+# ----------------- LOCAL COLLECTORS -----------------
+def run_command(command, output_file):
+    """Run a shell command and save its output."""
+    try:
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, encoding="utf-8"
+        )
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(result.stdout or "")
+            if result.stderr:
+                f.write("\n[STDERR]\n" + result.stderr)
+        logging.info(f"Collector saved: {output_file}")
+    except Exception as e:
+        logging.error(f"Failed to run command {command}: {e}")
+
+def collect_uname(output_path):
+    if platform.system() == "Windows":
+        cmd = "systeminfo"
+    else:
+        cmd = "uname -a"
+    run_command(cmd, output_path / "uname.txt")
+
+def collect_processes(output_path):
+    if platform.system() == "Windows":
+        cmd = "tasklist"
+    else:
+        cmd = "ps aux"
+    run_command(cmd, output_path / "processes.txt")
+
+def collect_crontab(output_path):
+    if platform.system() == "Windows":
+        cmd = "schtasks /query /fo LIST /v"
+    else:
+        cmd = "crontab -l"
+    run_command(cmd, output_path / "crontab.txt")
+
+def collect_packages(output_path):
+    if platform.system() == "Windows":
+        cmd = "wmic product get name,version"
+    elif shutil.which("dpkg"):
+        cmd = "dpkg -l"
+    elif shutil.which("rpm"):
+        cmd = "rpm -qa"
+    else:
+        logging.warning("No package manager found.")
+        return
+    run_command(cmd, output_path / "packages.txt")
+
+# -----------------------------------------------------
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compliance Evidence Automation Script"
@@ -62,23 +112,29 @@ def main():
     args = parser.parse_args()
 
     config = load_config()
-
     base_output = args.output or config["output"]["base_dir"]
 
-    # NEW — Create output folder
     output_path = create_output_dir(base_output)
+    local_path = output_path / "local"
+    local_path.mkdir(exist_ok=True)
 
-    # NEW — Initialize logging
     init_logger(output_path / "collect.log")
     logging.info("Script started.")
-    logging.info(f"Output directory: {output_path}")
-
-    # NEW — Save environment metadata
     save_env_metadata(output_path)
 
-    print(f"✅ Output directory created: {output_path}")
-    print(f"   - collect.log")
-    print(f"   - env_metadata.json")
+    # Determine which local collectors to run
+    local_collectors = args.collectors or config["collectors"]["local"]
+
+    if "uname" in local_collectors:
+        collect_uname(local_path)
+    if "processes" in local_collectors:
+        collect_processes(local_path)
+    if "crontab" in local_collectors:
+        collect_crontab(local_path)
+    if "packages" in local_collectors:
+        collect_packages(local_path)
+
+    print(f"✅ Evidence collected in: {output_path}")
 
 if __name__ == "__main__":
     main()
